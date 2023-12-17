@@ -1,0 +1,134 @@
+---
+title: "Reproducible Research: Peer Assessment 2"
+output: 
+  html_document:
+    keep_md: true
+date: "2023-12-14"
+---
+
+### Synopsis
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+### Data Processing
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+```{r, cache=TRUE, results=FALSE}
+if (!file.exists("storm.csv.bz2")) {
+    url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+    download.file(url, "storm.csv.bz2")
+}
+
+storm <- read.csv("storm.csv.bz2")
+```
+
+```{r}
+colnames(storm)
+```
+
+`FATALITIES` and `INJURIES` are variables related to population health.
+
+Sum all injuries and fatalities by event type and keep top 10 most harmful event types stored in new data frame `health`. Convert to long format for plotting.
+
+```{r}
+inj_by_type <- aggregate(INJURIES ~ EVTYPE, data = storm, sum)
+fatal_by_type <- aggregate(FATALITIES ~ EVTYPE, data = storm, sum)
+
+health <- 
+  merge(inj_by_type, fatal_by_type, by = "EVTYPE") |>
+  arrange(desc(INJURIES), desc(FATALITIES)) |>
+  slice(1:10)
+
+health
+
+health_long <- health |>
+  pivot_longer(cols = c(INJURIES, FATALITIES), names_to = "type", values_to = "count")
+```
+
+`PROPDMG`, `PROPDMGEXP`, `CROPDMG` and `CROPDMGEXP` are variables related to economy.
+
+```{r}
+unique(storm$PROPDMGEXP)
+```
+
+```{r}
+unique(storm$CROPDMGEXP)
+```
+
+Function to convert `H/h` to 100, `K/k` to 1,000, `M/m` to 1,000,000 etc, everything else gets converted to 0 for simplicity (not mentioned in Storm Data Preparation doc)
+
+```{r}
+char_to_num <- function(char) {
+  if (char == "h" || char == "H")
+    return(1E2)
+  else if (char == "k" || char == "K")
+    return(1E3)
+  else if (char == "m" || char == "M")
+    return(1E6)
+  else if (char == "b" || char == "B")
+    return(1E9)
+  else
+    return(0)
+}
+```
+
+Creating two new columns `PROP` and `CROP` by multiplying number column `PROPDMG` with transformed magnitude column `PROPDMGEXP` and `CROPDMG` with `CROPDMGEXP`
+
+```{r}
+storm$PROP <- storm$PROPDMG * sapply(storm$PROPDMGEXP, char_to_num)
+storm$CROP <- storm$CROPDMG * sapply(storm$PROPDMGEXP, char_to_num)
+```
+
+Sum all property damage values and crop damage values by event type and keep top 10 most harmful event types stored in new data frame `econ`. Convert to long format for plotting.
+
+```{r}
+prop_by_type <- aggregate(PROP ~ EVTYPE, data = storm, sum)
+crop_by_type <- aggregate(CROP ~ EVTYPE, data = storm, sum)
+
+
+econ <- 
+  merge(prop_by_type, crop_by_type, by = "EVTYPE") |>
+  arrange(desc(PROP), desc(CROP)) |>
+  slice(1:10)
+
+econ
+
+econ_long <- econ |>
+  pivot_longer(cols = c(PROP, CROP), names_to = "type", values_to = "value")
+```
+
+### Results
+
+```{r}
+ggplot(data = health_long, aes(x = reorder(EVTYPE, -count), y = count, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("INJURIES" = "orange", "FATALITIES" = "red")) + 
+  labs(x="Event Type", y="Count") +
+  ggtitle("Fatalities and Injuries of Top 10 Storm Types in the US") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 20, vjust = 0.7),
+        legend.position = "right")
+```
+
+Across the United States, **Tornadoes** are most harmful with respect to population health.
+
+```{r}
+ggplot(data = econ_long, aes(x = reorder(EVTYPE, -value), y = value, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("PROP" = "black", "CROP" = "gray")) + 
+  labs(x="Event Type", y="Value") +
+  ggtitle("Property and Crop Damage by Top 10 Storm Types in the US") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 25, vjust = 0.7),
+        legend.position = "right")
+```
+
+Across the United States, **Hurricanes** have the greatest economic consequences.
